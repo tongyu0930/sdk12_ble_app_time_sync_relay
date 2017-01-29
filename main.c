@@ -381,7 +381,7 @@ void GPIOTE_IRQHandler(void)
 
     }
 
-    if (NRF_GPIOTE->EVENTS_IN[3] != 0)		// for test, disable ts
+    if (NRF_GPIOTE->EVENTS_IN[3] != 0)		// shift
     {
     	nrf_delay_us(2000);
 
@@ -508,7 +508,7 @@ int main(void)
     gpio_configure(); // 注意gpio和timesync是相对独立的，同步时钟本质上不需要gpio
 
 
-    ppi_configure();
+    //ppi_configure();
 
 // 设置并开启 timer2 这个就是被同步的timer
 	NRF_TIMER2->TASKS_STOP  = 1;

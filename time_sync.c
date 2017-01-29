@@ -35,9 +35,17 @@
 #define TIMER_MAX_VAL (0xFFFF)	 //16bit
 #define RTC_MAX_VAL   (0xFFFFFF) //24bit
 
+#define TIMESLOT_EXTEND_LENGTH 200
+#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN		50
 
-static volatile bool 	m_timeslot_session_open;
-static uint32_t      	m_total_timeslot_length = 0;
+static nrf_radio_signal_callback_return_param_t signal_callback_return_param;
+
+static nrf_radio_request_t  m_timeslot_request;
+static uint32_t             m_slot_length;
+static volatile bool 	timeslot_session_opened = false;
+static uint32_t      	total_timeslot_length = 0;
+static volatile uint32_t 	extend_success_count;
+static volatile uint32_t 	fail_count;
 static uint32_t     	m_timeslot_distance = 0;
 static uint32_t     	m_ppi_chen_mask = 0;
 static ts_params_t  	ts_params;
@@ -76,57 +84,31 @@ static void timeslot_begin_handler(void);
 static void timeslot_end_handler(void);
 
 
-/**< This will be used when requesting the first timeslot or any time a timeslot is blocked or cancelled. */
-static nrf_radio_request_t m_timeslot_req_earliest = {
-        NRF_RADIO_REQ_TYPE_EARLIEST,
-        .params.earliest = {
-            NRF_RADIO_HFCLK_CFG_XTAL_GUARANTEED,
-            NRF_RADIO_PRIORITY_NORMAL,
-            TS_LEN_US,									// 1000 us
-            NRF_RADIO_EARLIEST_TIMEOUT_MAX_US
-        }};
+uint32_t request_next_event_earliest(void)
+{
+    m_slot_length                                  = TIMESLOT_EXTEND_LENGTH;
+    m_timeslot_request.request_type                = NRF_RADIO_REQ_TYPE_EARLIEST;
+    m_timeslot_request.params.earliest.hfclk       = NRF_RADIO_HFCLK_CFG_XTAL_GUARANTEED;
+    m_timeslot_request.params.earliest.priority    = NRF_RADIO_PRIORITY_NORMAL;
+    m_timeslot_request.params.earliest.length_us   = m_slot_length;
+    m_timeslot_request.params.earliest.timeout_us  = 1000000;
+    return sd_radio_request(&m_timeslot_request);
+}
 
-/**< This will be used at the end of each timeslot to request the next timeslot. */
-static nrf_radio_request_t m_timeslot_req_normal = {
-        NRF_RADIO_REQ_TYPE_NORMAL,
-        .params.normal = {
-            NRF_RADIO_HFCLK_CFG_XTAL_GUARANTEED,
-            NRF_RADIO_PRIORITY_NORMAL,
-            0,
-            TS_LEN_US
-        }};
 
-/**< This will be used at the end of each timeslot to request the next timeslot. */
-static nrf_radio_signal_callback_return_param_t m_rsc_return_sched_next_normal = {
-        NRF_RADIO_SIGNAL_CALLBACK_ACTION_REQUEST_AND_END,
-        .params.request = {
-                (nrf_radio_request_t*) &m_timeslot_req_normal
-        }};
+/**@brief Configure next timeslot event in earliest configuration
+ */
+void configure_next_event_earliest(void)  // EXTEND_FAILED时被call
+{
+    m_slot_length                                  = 15000;
+    m_timeslot_request.request_type                = NRF_RADIO_REQ_TYPE_EARLIEST;
+    m_timeslot_request.params.earliest.hfclk       = NRF_RADIO_HFCLK_CFG_XTAL_GUARANTEED;
+    m_timeslot_request.params.earliest.priority    = NRF_RADIO_PRIORITY_NORMAL;
+    m_timeslot_request.params.earliest.length_us   = m_slot_length;
+    m_timeslot_request.params.earliest.timeout_us  = 1000000; // 1秒
+    //nrf_gpio_pin_toggle(18);
+}
 
-/**< This will be used at the end of each timeslot to request the next timeslot. */
-static nrf_radio_signal_callback_return_param_t m_rsc_return_sched_next_earliest = {
-        NRF_RADIO_SIGNAL_CALLBACK_ACTION_REQUEST_AND_END,
-        .params.request = {
-                (nrf_radio_request_t*) &m_timeslot_req_earliest
-        }};
-
-/**< This will be used at the end of each timeslot to request an extension of the timeslot. */
-static nrf_radio_signal_callback_return_param_t m_rsc_extend = {
-        NRF_RADIO_SIGNAL_CALLBACK_ACTION_EXTEND,
-        .params.extend = {TX_LEN_EXTENSION_US}
-        };
-
-/**< This will be used at the end of each timeslot to request the next timeslot. */
-static nrf_radio_signal_callback_return_param_t m_rsc_return_no_action = {
-        NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE,
-        .params.request = {NULL}
-        };
-
-/**< This will be used at the end of each timeslot to end timeslot.
-static nrf_radio_signal_callback_return_param_t m_rsc_return_end = {
-		NRF_RADIO_SIGNAL_CALLBACK_ACTION_END,
-        .params.request = {NULL}
-        };*/
 
 
 void RADIO_IRQHandler(void) // 收到了sync packet后经过 radio callback，然后来到这里
@@ -161,112 +143,66 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
 
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_START:
         // TIMER0 is pre-configured for 1Mhz. which means 1us increace one.
-    	NRF_LOG_INFO("TYPE_START\r\n");
-        NRF_TIMER0->TASKS_STOP          = 1;
-        NRF_TIMER0->TASKS_CLEAR         = 1;
-        NRF_TIMER0->MODE                = (TIMER_MODE_MODE_Timer << TIMER_MODE_MODE_Pos);
-        NRF_TIMER0->EVENTS_COMPARE[0]   = 0;													// You still need to enable compare interrupt
-        NRF_TIMER0->EVENTS_COMPARE[1]   = 0;  													// what dose "=0" mean?
-        NRF_TIMER0->CC[0]               = (TS_LEN_US - TS_SAFETY_MARGIN_US);
-        NRF_TIMER0->CC[1]               = (TS_LEN_US - TS_EXTEND_MARGIN_US);
-        NRF_TIMER0->BITMODE             = (TIMER_BITMODE_BITMODE_24Bit << TIMER_BITMODE_BITMODE_Pos);//把 timer0 设置为 24bit，TIMER0 is pre-configured for 1Mhz
-        NRF_TIMER0->TASKS_START         = 1;														   // start timer0
+    	NRF_LOG_INFO("NRF_RADIO_CALLBACK_SIGNAL_TYPE_START\r\n");
 
-        if (m_send_sync_pkt) // true or false is only controlled by button1
-        {	// for TX mode
-        	NRF_TIMER0->INTENSET  = (TIMER_INTENSET_COMPARE0_Set << TIMER_INTENSET_COMPARE0_Pos); // Enable timer0 compare0 interrupt
-        }
-        else
-        {	// for RX mode
-        	NRF_TIMER0->INTENSET = (TIMER_INTENSET_COMPARE0_Set << TIMER_INTENSET_COMPARE0_Pos) |
-        						   (TIMER_INTENSET_COMPARE1_Set << TIMER_INTENSET_COMPARE1_Pos); // Enable timer0 compare0 and compare1 interrupt
-        }
-
-        NVIC_EnableIRQ(TIMER0_IRQn); // turn on NRF_TIMER0 interrupt   // 这样NRF_RADIO_CALLBACK_SIGNAL_TYPE_TIMER0 就可以发生了。
+		NRF_TIMER0->INTENSET = TIMER_INTENSET_COMPARE0_Msk;
+		NRF_TIMER0->BITMODE = (TIMER_BITMODE_BITMODE_32Bit << TIMER_BITMODE_BITMODE_Pos);
+		NRF_TIMER0->PRESCALER = (4 << TIMER_PRESCALER_PRESCALER_Pos);
+		NRF_TIMER0->CC[0] = m_slot_length - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
+		NVIC_EnableIRQ(TIMER0_IRQn);
 
         NRF_RADIO->POWER                = (RADIO_POWER_POWER_Enabled << RADIO_POWER_POWER_Pos);		// turn on radio
         
-        m_total_timeslot_length = 0;
+        total_timeslot_length = m_slot_length;
         
         timeslot_begin_handler();
+
+		signal_callback_return_param.params.request.p_next = NULL;
+        signal_callback_return_param.params.extend.length_us = TIMESLOT_EXTEND_LENGTH;
+        signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_EXTEND;
         break;
     
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_TIMER0:
 
-    	if(I_WANNA_STOP){
-    		timeslot_end_handler();
-    		NVIC_DisableIRQ(TIMER0_IRQn);
-    		//NRF_RADIO->POWER                = (RADIO_POWER_POWER_Disabled << RADIO_POWER_POWER_Pos);
-    		//NVIC_DisableIRQ(RADIO_IRQn);
-    		//NVIC_DisableIRQ(ts_params.egu_irq_type);
-    		//return (nrf_radio_signal_callback_return_param_t*) &m_rsc_return_end;
-    	}else{
-			// for both RX and TX mode
-			if (NRF_TIMER0->EVENTS_COMPARE[0] && (NRF_TIMER0->INTENSET & (TIMER_INTENSET_COMPARE0_Enabled << TIMER_INTENCLR_COMPARE0_Pos)))
-			{
-				NRF_TIMER0->TASKS_STOP  = 1; // stop timer0
-				NRF_TIMER0->EVENTS_COMPARE[0] = 0;	// 这是说停止timer0后在清零compare？
-				(void)NRF_TIMER0->EVENTS_COMPARE[0];
+    	timeslot_end_handler();
 
-				// This is the "timeslot is about to end" timeout
-				timeslot_end_handler(); // 这里就是所谓的 do graceful shut down?
+		NRF_LOG_INFO("Timeslot ending after %d microseconds\r\n", NRF_TIMER0->CC[0]);
+		signal_callback_return_param.params.request.p_next = NULL;
+		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_END;
 
-				// Schedule next timeslot
-				if (m_send_sync_pkt) // true or false is only controlled by button1
-				{	// for TX mode
-					m_timeslot_req_normal.params.normal.distance_us = m_total_timeslot_length + m_timeslot_distance;
-					return (nrf_radio_signal_callback_return_param_t*) &m_rsc_return_sched_next_normal;
-				}
-				else
-				{	// for RX mode
-					return (nrf_radio_signal_callback_return_param_t*) &m_rsc_return_sched_next_earliest; // 1000 us
-				}
-			}
-
-			// only for 程序处于 RX mode
-			if (NRF_TIMER0->EVENTS_COMPARE[1] && (NRF_TIMER0->INTENSET & (TIMER_INTENSET_COMPARE1_Enabled << TIMER_INTENCLR_COMPARE1_Pos)))
-			{
-				NRF_TIMER0->EVENTS_COMPARE[1] = 0;
-				(void)NRF_TIMER0->EVENTS_COMPARE[1];
-
-				// This is the "try to extend timeslot" timeout		RX模式下就是需要一只处于扫描状态，时刻准备着接受packet
-				if (m_total_timeslot_length < (128000000UL - 5000UL - TX_LEN_EXTENSION_US) && !m_send_sync_pkt)	// 5000UL 是什么？
-				{
-					// Request timeslot extension if total length does not exceed 128 seconds
-					return (nrf_radio_signal_callback_return_param_t*) &m_rsc_extend; // 1000UL
-				}
-				else if (!m_send_sync_pkt) // true or false is only controlled by button1
-				{
-					// Don't do anything. Timeslot will end and new one requested upon the next timer0 compare.
-
-					// Return with normal action request
-					//m_timeslot_req_normal.params.normal.distance_us = m_total_timeslot_length + m_timeslot_distance;
-					//return (nrf_radio_signal_callback_return_param_t*) &m_rsc_return_sched_next_normal;
-				}
-			}
-    	}
         break;
 
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_RADIO:
-        RADIO_IRQHandler();
+    	RADIO_IRQHandler();
+
+		signal_callback_return_param.params.request.p_next = NULL;
+		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE;
         break;
     
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_EXTEND_FAILED:
-        // Don't do anything. Our timer will expire before timeslot ends
-    	NRF_LOG_INFO("extend failed\r\n");
-        return (nrf_radio_signal_callback_return_param_t*) &m_rsc_return_no_action;
+    	fail_count++;
+
+		signal_callback_return_param.params.request.p_next = NULL;
+		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_END;
+		break;
     
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_EXTEND_SUCCEEDED:
-        // Extension succeeded: update timer
-        NRF_TIMER0->TASKS_STOP          = 1;
-        NRF_TIMER0->EVENTS_COMPARE[0]   = 0;
-        NRF_TIMER0->EVENTS_COMPARE[1]   = 0;
-        NRF_TIMER0->CC[0]               += (TX_LEN_EXTENSION_US - 25);
-        NRF_TIMER0->CC[1]               += (TX_LEN_EXTENSION_US - 25);
-        NRF_TIMER0->TASKS_START         = 1;
+    	extend_success_count++;
 
-        m_total_timeslot_length += TX_LEN_EXTENSION_US; // Keep track of total length
-        //NRF_LOG_INFO("extend succeeded\r\n");
+		if(total_timeslot_length >= 12000000)
+		{
+			signal_callback_return_param.params.request.p_next = NULL;
+			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE;
+		}
+		else
+		{
+			total_timeslot_length += TIMESLOT_EXTEND_LENGTH;
+
+			NRF_TIMER0->CC[0] = total_timeslot_length - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
+			signal_callback_return_param.params.request.p_next = NULL;
+			signal_callback_return_param.params.extend.length_us = TIMESLOT_EXTEND_LENGTH;
+			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_EXTEND;
+		}
         break;
     
     default:
@@ -275,7 +211,7 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
     };
 
     // Fall-through return: return with no action request
-    return (nrf_radio_signal_callback_return_param_t*) &m_rsc_return_no_action;
+    return (&signal_callback_return_param);
 }
 
 
@@ -333,8 +269,8 @@ void timeslot_end_handler(void)
     
     NRF_PPI->CHENCLR = (1 << 3); 			// disable 在begin handler里设置的ppi		channel 3
     
-    m_total_timeslot_length  = 0;
     m_radio_state            = RADIO_STATE_IDLE;
+    NRF_LOG_INFO("endhandler\r\n");
 }
 
 /**@brief IRQHandler used for execution context management. 
@@ -441,9 +377,7 @@ void ts_on_sys_evt(uint32_t sys_evt)
         case NRF_EVT_RADIO_CANCELED:
         	{// Blocked events are rescheduled with normal priority. They could also
             // be rescheduled with high priority if necessary.
-            uint32_t err_code = sd_radio_request((nrf_radio_request_t*) &m_timeslot_req_earliest);
-            APP_ERROR_CHECK(err_code);
-
+        	NRF_LOG_INFO("NRF_EVT_RADIO_CANCELED\r\n");
             m_blocked_cancelled_count++;
             break;}
 
@@ -458,13 +392,17 @@ void ts_on_sys_evt(uint32_t sys_evt)
 			 * Note that it is also possible to request new timeslots here(more on that later).
 			 */
 			NRF_LOG_INFO("NRF_EVT_RADIO_SESSION_IDLE\r\n");
-
-			uint32_t err_code = sd_radio_session_close();  //cannot consider the session closed until the @ref NRF_EVT_RADIO_SESSION_CLOSED event is received.
-			APP_ERROR_CHECK(err_code);
+			//NRF_GPIO->OUTCLR = (1 << 17);
+			sd_radio_session_close();
+            NRF_LOG_INFO("NRF_EVT_RADIO_SESSION_IDLE\r\n");
 			break;}
 
         case NRF_EVT_RADIO_SESSION_CLOSED: //The session is closed and all acquired resources are released
-			m_timeslot_session_open = false;
+        	timeslot_session_opened = false;
+            NRF_LOG_INFO("NRF_EVT_RADIO_SESSION_CLOSED\r\n");
+			NRF_LOG_INFO(" extend_success_count            = %d\r\n", extend_success_count);
+			NRF_LOG_INFO(" extend_fail_count               = %d\r\n", fail_count);
+			NRF_LOG_INFO(" total timeslot length           = %d\r\n", total_timeslot_length);
 
 			NRF_LOG_INFO("NRF_EVT_RADIO_SESSION_CLOSED\r\n");
             break;
@@ -498,6 +436,9 @@ void SWI3_EGU3_IRQHandler(void)				// it is used to shut down thoses PPIs that i
             NRF_EGU3->EVENTS_TRIGGERED[1] = 0;
             (void) NRF_EGU3->EVENTS_TRIGGERED[1];
 
+            NRF_LOG_INFO("EGU[1]\r\n");
+            if(!timeslot_session_opened)
+            {
             if(want_shift)
             {
             	want_shift = false;
@@ -513,6 +454,7 @@ void SWI3_EGU3_IRQHandler(void)				// it is used to shut down thoses PPIs that i
             		}else{
             			first_time = false;
             		}
+            		NRF_LOG_INFO("Iam ok\r\n");
             		err_code = sd_ble_gap_scan_start(&m_scan_params);
             		APP_ERROR_CHECK(err_code);
 
@@ -529,6 +471,7 @@ void SWI3_EGU3_IRQHandler(void)				// it is used to shut down thoses PPIs that i
             		NRF_LOG_INFO("broadcasting\r\n");
             		want_scan = true;
             	}
+            }
             }
         }
 }
@@ -691,12 +634,12 @@ uint32_t ts_enable(void) // 这个function返回error_code，所以类型是uint
 
 
 //ppi configuration
-	//ppi_configure();
+	ppi_configure();
 
 
 
 // timeslot related
-    if (m_timeslot_session_open) { return NRF_ERROR_INVALID_STATE; } // 这地方是true还是false ? 我觉得是 false
+    if (timeslot_session_opened) { return NRF_ERROR_INVALID_STATE; } // 这地方是true还是false ? 我觉得是 false
 
     sd_clock_hfclk_is_running(&hfclk_is_running);
     NRF_LOG_INFO("hfclk_is_running = %d\r\n", hfclk_is_running);
@@ -718,20 +661,20 @@ uint32_t ts_enable(void) // 这个function返回error_code，所以类型是uint
      */
     err_code = sd_radio_session_open(radio_callback); //Opens a session for radio timeslot requests
     if (err_code != NRF_SUCCESS) { return err_code; }
-NRF_LOG_INFO("error code = %d\r\n", err_code);
+
     // request the first timeslot (which must be of type earliest possible)
-    err_code = sd_radio_request(&m_timeslot_req_earliest); // Requests a radio timeslot
+    err_code = request_next_event_earliest();
+    	if (err_code != NRF_SUCCESS)
+    	{
+    		(void)sd_radio_session_close();
+    		return err_code;
+    	}
     /*
      * Successful requests will result in nrf_radio_signal_callback_t(@ref NRF_RADIO_CALLBACK_SIGNAL_TYPE_START).
      * Unsuccessful requests will result in a @ref NRF_EVT_RADIO_BLOCKED event, see @ref NRF_SOC_EVTS.
      */
-	if (err_code != NRF_SUCCESS)
-	{
-		(void)sd_radio_session_close();
-		return err_code;
-	}
 
-    m_timeslot_session_open    	= true;
+    timeslot_session_opened    	= true;
     
     m_blocked_cancelled_count  	= 0;
     m_send_sync_pkt            	= false;
