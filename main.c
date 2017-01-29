@@ -355,7 +355,7 @@ void GPIOTE_IRQHandler(void)
         {
             m_send_sync_pkt  = true;
 
-            err_code = ts_tx_start(100);
+            err_code = ts_tx_start();
             APP_ERROR_CHECK(err_code);
             NRF_GPIO->OUTCLR = BSP_LED_1_MASK; // if ts_tx_start, LED2 will be off
 

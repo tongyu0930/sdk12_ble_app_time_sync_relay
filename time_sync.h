@@ -48,7 +48,7 @@ uint32_t ts_disable(void);
  *
  * @retval NRF_SUCCESS if successful 
  */
-uint32_t ts_tx_start(uint32_t sync_freq_hz);
+uint32_t ts_tx_start(void);
 
 /**@brief Stop sync packet transmission (become timing slave again).
  *
