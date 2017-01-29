@@ -508,7 +508,6 @@ int main(void)
     gpio_configure(); // 注意gpio和timesync是相对独立的，同步时钟本质上不需要gpio
 
 
-    //ppi_configure();
 
 // 设置并开启 timer2 这个就是被同步的timer
 	NRF_TIMER2->TASKS_STOP  = 1;
