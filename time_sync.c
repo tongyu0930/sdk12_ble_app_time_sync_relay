@@ -31,8 +31,8 @@
 #define MAIN_DEBUG                           			0x12345678UL
 #define TIMER_MAX_VAL (0xFFFF)	 //16bit
 #define RTC_MAX_VAL   (0xFFFFFF) //24bit
-#define TIMESLOT_EXTEND_LENGTH 200	//原值 200
-#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN				50	// 原值50
+#define TIMESLOT_EXTEND_LENGTH 1000	//原值 200
+#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN				25	// 原值50
 
 static nrf_radio_signal_callback_return_param_t 		signal_callback_return_param;
 static nrf_radio_request_t  							m_timeslot_request;
@@ -89,9 +89,9 @@ uint32_t request_next_event_earliest(void)
 }
 
 
-void configure_next_event_earliest(void)  // EXTEND_FAILED时被call
+void configure_next_event_earliest(void)
 {
-    m_slot_length                                  = 1000;
+    m_slot_length                                  = TIMESLOT_EXTEND_LENGTH;
     m_timeslot_request.request_type                = NRF_RADIO_REQ_TYPE_EARLIEST;
     m_timeslot_request.params.earliest.hfclk       = NRF_RADIO_HFCLK_CFG_XTAL_GUARANTEED;
     m_timeslot_request.params.earliest.priority    = NRF_RADIO_PRIORITY_NORMAL;
@@ -135,22 +135,20 @@ void RADIO_IRQHandler(void) // 收到了sync packet后经过 radio callback，�
  * is called whenever the NRF_TIMER0 interrupt occurs.
  * is called whenever the NRF_RADIO interrupt occurs.
  * will be called at ARM interrupt priority level 0. This implies that none of the sd_* API calls can be used from p_radio_signal_callback().
- *
- *注意这个functiong的返回类型，看看其declaration，里面的callback_action一共有4中可能
  */
 static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal_type) // This callback runs at lower-stack priority(the highest priority possible).
 {
     switch (signal_type) {
 
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_START:
-    	// 是不是因为每个新的timeslot开始才会进入这个case，因为timeslot一旦结束，对设备的控制权就没了，所以要重新设置这些东西
+    																								// 每个新的timeslot开始才会进入这个case，因为timeslot一旦结束，对设备的控制权就没了，所以要重新设置这些东西
 
     	NRF_LOG_INFO("CASE_START\r\n");
 
-    	// TIMER0 is pre-configured for 1Mhz. which means 1us increace one.
+
 		NRF_TIMER0->INTENSET = TIMER_INTENSET_COMPARE0_Msk;
 		NRF_TIMER0->BITMODE = (TIMER_BITMODE_BITMODE_32Bit << TIMER_BITMODE_BITMODE_Pos);			// 4000多秒才会flowout
-		NRF_TIMER0->PRESCALER = (4 << TIMER_PRESCALER_PRESCALER_Pos);
+		NRF_TIMER0->PRESCALER = (4 << TIMER_PRESCALER_PRESCALER_Pos);								// TIMER0 is pre-configured for 1Mhz
 		NRF_TIMER0->CC[0] = m_slot_length - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
 		NVIC_EnableIRQ(TIMER0_IRQn);
 
@@ -160,9 +158,6 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
         
         timeslot_begin_handler();
 
-		//signal_callback_return_param.params.request.p_next = NULL;
-        //signal_callback_return_param.params.extend.length_us = TIMESLOT_EXTEND_LENGTH;
-        //signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_EXTEND;
 		signal_callback_return_param.params.request.p_next = NULL;
 		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE;
         break;
@@ -171,18 +166,22 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
     	if(m_send_sync_pkt)
     	{
     		normal_distance = total_timeslot_length + 30000;
-			NRF_TIMER0->CC[0] = normal_distance + 1000 - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;		// 1000是normal request里的length
 			configure_next_event_normal();
 			signal_callback_return_param.params.request.p_next = &m_timeslot_request;
 			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_REQUEST_AND_END;
     	}else
     	{
-    		if(total_timeslot_length >= 12000000)
+    		if(total_timeslot_length >= 6000000)													// 可以把600000设置为变量，方便调解
     		{
-    			timeslot_end_handler();
-    			NRF_LOG_INFO("Timeslot end %d microseconds\r\n", NRF_TIMER0->CC[0]);
+    			timeslot_end_handler(); 															// 我发现这个有没有，之后都可以正常广播扫描
+    			NRF_LOG_INFO("Timeslot end %d microseconds\r\n", NRF_TIMER0->CC[0]); 				// 这个数值小的原因是剪去了 TIMESLOT_TIMER_INTERRUPT_END_MARGIN
+
     			signal_callback_return_param.params.request.p_next = NULL;
     			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_END;
+
+    			//configure_next_event_earliest();													// 想用不停止就用这三句代替上面两句
+				//signal_callback_return_param.params.request.p_next = &m_timeslot_request;
+				//signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_REQUEST_AND_END;
     		}else
     		{
 				signal_callback_return_param.params.request.p_next = NULL;
@@ -190,13 +189,6 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
 				signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_EXTEND;
     		}
     	}
-
-
-
-		//NRF_LOG_INFO("Timeslot ending after %d microseconds\r\n", NRF_TIMER0->CC[0]);
-		//signal_callback_return_param.params.request.p_next = NULL;
-		//signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_END;
-
         break;
 
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_RADIO:
@@ -214,30 +206,14 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
 		break;
     
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_EXTEND_SUCCEEDED:
-
+    	NRF_TIMER0->TASKS_STOP          = 1;
+    	NRF_TIMER0->EVENTS_COMPARE[0] 	= 0;
     	extend_success_count++;
     	total_timeslot_length += TIMESLOT_EXTEND_LENGTH;
-		NRF_TIMER0->CC[0] = total_timeslot_length - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
+		NRF_TIMER0->CC[0] += TIMESLOT_EXTEND_LENGTH - TIMESLOT_TIMER_INTERRUPT_END_MARGIN; 			// WHY?
+		NRF_TIMER0->TASKS_START          = 1;
 		signal_callback_return_param.params.request.p_next = NULL;
 		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE;
-
-		/*else
-		{
-			if(m_send_sync_pkt)
-			{
-				normal_distance = total_timeslot_length + 30000;
-				NRF_TIMER0->CC[0] = normal_distance + 1000 - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
-				configure_next_event_normal();
-				signal_callback_return_param.params.request.p_next = &m_timeslot_request;
-				signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_REQUEST_AND_END;
-			}else
-			{
-				NRF_TIMER0->CC[0] = total_timeslot_length - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
-				signal_callback_return_param.params.request.p_next = NULL;
-				signal_callback_return_param.params.extend.length_us = TIMESLOT_EXTEND_LENGTH;
-				signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_EXTEND;
-			}
-		}*/
         break;
     
     default:
@@ -288,7 +264,7 @@ static void update_radio_parameters()
     NRF_RADIO->EVENTS_END 	= 0;
     
     NRF_RADIO->INTENCLR 	= 0xFFFFFFFF;
-    NRF_RADIO->INTENSET 	= RADIO_INTENSET_END_Msk;  //radio活动结束时interrupt
+    NRF_RADIO->INTENSET 	= RADIO_INTENSET_END_Msk;  				//radio活动结束时interrupt
     
     NVIC_EnableIRQ(RADIO_IRQn);
 }
@@ -341,7 +317,7 @@ void timeslot_begin_handler(void)
     if (m_radio_state == RADIO_STATE_RX)														// 这个if是为了干什么？
     {
         NRF_RADIO->EVENTS_DISABLED = 0;
-        NRF_RADIO->TASKS_DISABLE = 1;  	// Disable RADIO
+        NRF_RADIO->TASKS_DISABLE = 1;  															// Disable RADIO
         while (NRF_RADIO->EVENTS_DISABLED == 0)
         {
             __NOP();																			// 到了这句话系统还能不能继续走下去？
