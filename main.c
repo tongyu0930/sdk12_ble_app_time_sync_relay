@@ -63,11 +63,8 @@
 #define SYNC_BEACON_COUNT_PRINTOUT_INTERVAL APP_TIMER_TICKS(1000, APP_TIMER_PRESCALER)
 
 static ble_gap_adv_params_t m_adv_params;   /**< Parameters to be passed to the stack when starting advertising. */
-
-//static bool                             m_advertising_running       = false;
 static bool 							m_send_sync_pkt 			= false;  // time_sync.c 里也有这个变量，是不是不是一回事？
 static bool 							ts_is_enabled 				= false;
-
 volatile bool want_shift 	= false;
 
 APP_TIMER_DEF(m_sync_count_timer_id);
@@ -199,22 +196,22 @@ static void advertising_init(void)
 {
     uint32_t      err_code;
     ble_advdata_t advdata;
-    uint8_t       flags = BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED;
+    uint8_t       flags 						= BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED;
 
     ble_advdata_manuf_data_t manuf_specific_data;
 
-    uint8_t data[] = "xxxxx"; // Our data to adverise。 scanner上显示的0x串中，最后是00，表示结束。
+    uint8_t data[] 								= "xxxxx"; // Our data to adverise。 scanner上显示的0x串中，最后是00，表示结束。
 
-    manuf_specific_data.company_identifier = APP_COMPANY_IDENTIFIER;
-    manuf_specific_data.data.p_data = data;
-    manuf_specific_data.data.size   = sizeof(data);
+    manuf_specific_data.company_identifier 		= APP_COMPANY_IDENTIFIER;
+    manuf_specific_data.data.p_data 			= data;
+    manuf_specific_data.data.size   			= sizeof(data);
 
     // Build and set advertising data.
     memset(&advdata, 0, sizeof(advdata));
 
-    advdata.name_type             = BLE_ADVDATA_NO_NAME;
-    advdata.flags                 = flags;
-    advdata.p_manuf_specific_data = &manuf_specific_data;
+    advdata.name_type             				= BLE_ADVDATA_NO_NAME;
+    advdata.flags                				= flags;
+    advdata.p_manuf_specific_data 				= &manuf_specific_data;
 
     err_code = ble_advdata_set(&advdata, NULL);
     APP_ERROR_CHECK(err_code);
@@ -222,11 +219,11 @@ static void advertising_init(void)
     // Initialize advertising parameters (used when starting advertising).
     memset(&m_adv_params, 0, sizeof(m_adv_params));
 
-    m_adv_params.type        = BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
-    m_adv_params.p_peer_addr = NULL;                             // Undirected advertisement.
-    m_adv_params.fp          = BLE_GAP_ADV_FP_ANY;
-    m_adv_params.interval    = NON_CONNECTABLE_ADV_INTERVAL;
-    m_adv_params.timeout     = APP_CFG_NON_CONN_ADV_TIMEOUT;
+    m_adv_params.type        					= BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
+    m_adv_params.p_peer_addr 					= NULL;                             // Undirected advertisement.
+    m_adv_params.fp          					= BLE_GAP_ADV_FP_ANY;
+    m_adv_params.interval    					= NON_CONNECTABLE_ADV_INTERVAL;
+    m_adv_params.timeout     					= APP_CFG_NON_CONN_ADV_TIMEOUT;
 }
 
 
@@ -235,7 +232,7 @@ static void advertising_init(void)
 void advertising_start(void)
 {
     uint32_t err_code;
-    err_code = sd_ble_gap_adv_start(&m_adv_params); // 括号里面的是个全局变量吗？
+    err_code = sd_ble_gap_adv_start(&m_adv_params);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -302,22 +299,22 @@ static void ble_stack_init(void)
     uint32_t err_code;
     nrf_clock_lf_cfg_t clock_lf_cfg = NRF_CLOCK_LFCLKSRC;
 
-    SOFTDEVICE_HANDLER_INIT(&clock_lf_cfg, NULL); // Initialize the SoftDevice handler module.
+    SOFTDEVICE_HANDLER_INIT(&clock_lf_cfg, NULL); 													// Initialize the SoftDevice handler module.
 
     ble_enable_params_t ble_enable_params;
 
     err_code = softdevice_enable_get_default_config(CENTRAL_LINK_COUNT, PERIPHERAL_LINK_COUNT, &ble_enable_params);
     APP_ERROR_CHECK(err_code);
 
-    CHECK_RAM_START_ADDR(CENTRAL_LINK_COUNT,PERIPHERAL_LINK_COUNT);//Check the ram settings against the used number of links
+    CHECK_RAM_START_ADDR(CENTRAL_LINK_COUNT,PERIPHERAL_LINK_COUNT);									//Check the ram settings against the used number of links
 
-    err_code = softdevice_enable(&ble_enable_params); // Enable BLE stack.
+    err_code = softdevice_enable(&ble_enable_params); 												// Enable BLE stack.
     APP_ERROR_CHECK(err_code);
 
-    err_code = softdevice_ble_evt_handler_set(ble_evt_dispatch); // Register with the SoftDevice handler module for BLE events.
+    err_code = softdevice_ble_evt_handler_set(ble_evt_dispatch); 									// Register with the SoftDevice handler module for BLE events.
     APP_ERROR_CHECK(err_code);
 
-    err_code = softdevice_sys_evt_handler_set(sys_evt_dispatch); // Register with the SoftDevice handler module for System (SOC) events.
+    err_code = softdevice_sys_evt_handler_set(sys_evt_dispatch); 									// Register with the SoftDevice handler module for System (SOC) events.
     APP_ERROR_CHECK(err_code);
 }
 
@@ -338,27 +335,22 @@ void GPIOTE_IRQHandler(void)
     if (NRF_GPIOTE->EVENTS_IN[1] != 0) // button1 实现timesync广播的开启和关闭
     {
         nrf_delay_us(2000);
-
         NRF_GPIOTE->EVENTS_IN[1] = 0; // 这句话是为了防止按键一直被按着，如果没有这句话，handler就会一直被call
 
         if (m_send_sync_pkt)
         {
             m_send_sync_pkt  = false;
-
             err_code = ts_tx_stop();
             APP_ERROR_CHECK(err_code);
             NRF_GPIO->OUTSET = BSP_LED_1_MASK; // if ts_tx_stop, LED2 will be off
-
             NRF_LOG_INFO("Stop TX!\r\n");
         }
         else
         {
             m_send_sync_pkt  = true;
-
             err_code = ts_tx_start();
             APP_ERROR_CHECK(err_code);
             NRF_GPIO->OUTCLR = BSP_LED_1_MASK; // if ts_tx_start, LED2 will be off
-
             NRF_LOG_INFO("Start TX!\r\n");
         }
     }
@@ -366,16 +358,14 @@ void GPIOTE_IRQHandler(void)
     if (NRF_GPIOTE->EVENTS_IN[2] != 0) // button2 关闭 timeslot
     {
     	nrf_delay_us(2000);
-
         NRF_GPIOTE->EVENTS_IN[2] = 0;
 
         if(ts_is_enabled)
 		{
 			err_code = ts_disable();			// 我发现即使没关闭timeslot，再次开启timeslot也会出现fatal error，但是timeslot tutorial就不会。
 			APP_ERROR_CHECK(err_code);
-
-			NRF_LOG_INFO("ts disabled\r\n");
-
+			NRF_LOG_INFO("ts_disabled is called\r\n");
+			//NRF_EGU3->INTENCLR 		= EGU_INTENCLR_TRIGGERED1_Msk; // 你即使关了，它也还在adv或者scan啊，你得关掉adv和scan
 			ts_is_enabled = false;
 		 }
 
@@ -384,12 +374,13 @@ void GPIOTE_IRQHandler(void)
     if (NRF_GPIOTE->EVENTS_IN[3] != 0)		// shift
     {
     	nrf_delay_us(2000);
-
         NRF_GPIOTE->EVENTS_IN[3] = 0;
 
         if(!want_shift)
         {
         	want_shift = true;
+        	//NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED1_Msk;
+        	NRF_GPIO->OUT ^= (1 << 20);
 			NRF_LOG_INFO("shift\r\n");
          }
     }
@@ -397,16 +388,13 @@ void GPIOTE_IRQHandler(void)
     if (NRF_GPIOTE->EVENTS_IN[4] != 0)		// for test, enable ts
         {
         	nrf_delay_us(2000);
-
             NRF_GPIOTE->EVENTS_IN[4] = 0;
 
             if(!ts_is_enabled)
             {
 				err_code = ts_enable();
 				APP_ERROR_CHECK(err_code);
-
 				NRF_LOG_INFO("ts disabled\r\n");
-
 				ts_is_enabled = true;
              }
         }
@@ -467,7 +455,6 @@ static void gpio_configure(void)
 	NVIC_ClearPendingIRQ(GPIOTE_IRQn);
 	NVIC_SetPriority(GPIOTE_IRQn, APP_IRQ_PRIORITY_LOWEST);
 	NVIC_EnableIRQ(GPIOTE_IRQn); 											 					//declaration值得一看！！！有关IRQ
-
 }
 
 /**
@@ -479,8 +466,7 @@ int main(void)
 
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
-
-    NRF_LOG_INFO("############# System Started ###############\r\n");
+    NRF_LOG_INFO("###################### System Started ####################\r\n");
 
     APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false); //(0,4,false)
     /*
@@ -499,7 +485,6 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 
     ble_stack_init();
-
     advertising_init();
 
     err_code = app_timer_start(m_sync_count_timer_id, SYNC_BEACON_COUNT_PRINTOUT_INTERVAL, NULL); // 每1000ms就触发一次handler
@@ -507,9 +492,7 @@ int main(void)
 
     gpio_configure(); // 注意gpio和timesync是相对独立的，同步时钟本质上不需要gpio
 
-
-
-// 设置并开启 timer2 这个就是被同步的timer
+    // 设置并开启 timer2 这个就是被同步的timer
 	NRF_TIMER2->TASKS_STOP  = 1;
 	NRF_TIMER2->TASKS_CLEAR = 1;
 	NRF_TIMER2->PRESCALER   = 8; // 原值为：SYNC_TIMER_PRESCALER // frequency = 16000000/(2^8) = 62500 hz
@@ -518,18 +501,11 @@ int main(void)
 	//NRF_TIMER2->CC[3]       = (0x7FFF); // Only used for debugging purposes such as pin toggling
 	NRF_TIMER2->SHORTS      = TIMER_SHORTS_COMPARE0_CLEAR_Msk | TIMER_SHORTS_COMPARE3_CLEAR_Msk; // 让event_compare register达到cc的值就清零
 	NRF_TIMER2->TASKS_START = 1;
-
 	NRF_TIMER2->EVENTS_COMPARE[3] = 0; // 自己加的 event_compare register 的初始值
-
 	NRF_LOG_INFO("timer2 started\r\n");
 
-
-    //err_code = ts_enable();
-    //APP_ERROR_CHECK(err_code);
-
-
     // Enter main loop.
-    for (;; )
+    for (;; ) 																	// Enter main loop.
     {
         if (NRF_LOG_PROCESS() == false)
         {
