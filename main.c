@@ -35,6 +35,7 @@
 #include "app_util_platform.h"
 #include "nrf_delay.h"
 #include "nrf_gpio.h"
+#include "relay.h"
 
 
 #define CENTRAL_LINK_COUNT       		0  /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
@@ -86,15 +87,15 @@ const ble_gap_scan_params_t m_scan_params =
     .timeout     = SCAN_TIMEOUT
   };
 
-/*
-void HardFault_Handler(void)  //作者添加的
+
+void HardFault_Handler(void)  //重写HardFault_Handler
 {
     uint32_t *sp = (uint32_t *) __get_MSP();
     uint32_t ia = sp[24/4];
     NRF_LOG_INFO("Hard Fault at address: 0x%08x\r\n", (unsigned int)ia);
     while(1)
         ;
-}*/
+}
 
 
 /**@brief Callback function for asserts in the SoftDevice.
@@ -113,8 +114,8 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
 
-/*
-void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)  //作者添加的
+
+void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)  //重写app_error_fault_handler
 {
     // static error variables - in order to prevent removal by optimizers
     static volatile struct
@@ -156,7 +157,7 @@ void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)  //作者�
 
     UNUSED_VARIABLE(m_error_data);
 
-    NRF_LOG_INFO("ASSERT\r\n\tError: 0x%08x\r\n\tLine: %d\r\n\tFile: %s\r\n", m_error_data.err_code, m_error_data.line_num, m_error_data.p_file_name);
+    //NRF_LOG_INFO("ASSERT\r\n\tError: 0x%08x\r\n\tLine: %d\r\n\tFile: %s\r\n", m_error_data.err_code, m_error_data.line_num, m_error_data.p_file_name);
 
     // If printing is disrupted, remove the irq calls, or set the loop variable to 0 in the debugger.
     __disable_irq();
@@ -164,7 +165,7 @@ void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)  //作者�
     while(loop);
 
     __enable_irq();
-} */
+}
 
 
 //这是APP TIMER's handler
@@ -240,8 +241,7 @@ void advertising_start(void)
     APP_ERROR_CHECK(err_code);
 }
 
-
-//自己加的
+/*
 void relay_adv_data(ble_evt_t * p_ble_evt)
 {
 	uint32_t index = 0;
@@ -260,13 +260,9 @@ void relay_adv_data(ble_evt_t * p_ble_evt)
 					NRF_LOG_INFO("rssi = %d\r\n", p_adv_report->rssi);
 					NRF_LOG_INFO("dlen = %d\r\n", p_adv_report->dlen); // 这个就是p_data（安卓手机上raw data）的length
 			}
-
 			index += field_length + 1;
 	    }
-
-	//sd_ble_gap_adv_data_set(p_data, sizeof(p_data), NULL, 0);
-
-}
+}*/
 
 
 /**@brief Function for dispatching a BLE stack event to all modules with a BLE stack event handler.
