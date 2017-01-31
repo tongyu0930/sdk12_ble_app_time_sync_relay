@@ -65,7 +65,11 @@
 static ble_gap_adv_params_t m_adv_params;   /**< Parameters to be passed to the stack when starting advertising. */
 static bool 							m_send_sync_pkt 			= false;  // time_sync.c 里也有这个变量，是不是不是一回事？
 static bool 							ts_is_enabled 				= false;
-volatile bool want_shift 	= false;
+static bool 							started_bro_sca				= false;
+volatile bool 							want_shift 					= false;
+volatile bool 							first_time					= true;
+extern volatile bool 					want_scan;
+
 
 APP_TIMER_DEF(m_sync_count_timer_id);
 
@@ -334,7 +338,7 @@ void GPIOTE_IRQHandler(void)
 
     if (NRF_GPIOTE->EVENTS_IN[1] != 0) // button1 实现timesync广播的开启和关闭
     {
-        nrf_delay_us(2000);
+        nrf_delay_us(20000);
         NRF_GPIOTE->EVENTS_IN[1] = 0; // 这句话是为了防止按键一直被按着，如果没有这句话，handler就会一直被call
 
         if (m_send_sync_pkt)
@@ -355,25 +359,39 @@ void GPIOTE_IRQHandler(void)
         }
     }
 
-    if (NRF_GPIOTE->EVENTS_IN[2] != 0) // button2 关闭 timeslot
+    if (NRF_GPIOTE->EVENTS_IN[2] != 0) // button2 开启关闭 广播
     {
-    	nrf_delay_us(2000);
+    	nrf_delay_us(20000);
         NRF_GPIOTE->EVENTS_IN[2] = 0;
 
-        if(ts_is_enabled)
+        if(!started_bro_sca)
 		{
-			err_code = ts_disable();			// 我发现即使没关闭timeslot，再次开启timeslot也会出现fatal error，但是timeslot tutorial就不会。
-			APP_ERROR_CHECK(err_code);
-			NRF_LOG_INFO("ts_disabled is called\r\n");
-			//NRF_EGU3->INTENCLR 		= EGU_INTENCLR_TRIGGERED1_Msk; // 你即使关了，它也还在adv或者scan啊，你得关掉adv和scan
-			ts_is_enabled = false;
+			NRF_LOG_INFO("start broadcast and scan\r\n");
+			first_time 				= true;
+			NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED1_Msk;
+			started_bro_sca 		= true;
+		 }else
+		 {
+			NRF_LOG_INFO("stop broadcast and scan\r\n");
+			NRF_EGU3->INTENCLR 		= EGU_INTENCLR_TRIGGERED1_Msk;
+
+			if(want_scan)
+			{
+				err_code = sd_ble_gap_adv_stop();
+				APP_ERROR_CHECK(err_code);
+			}else
+			{
+				err_code = sd_ble_gap_scan_stop();
+				APP_ERROR_CHECK(err_code);
+			}
+			started_bro_sca = false;
 		 }
 
     }
 
     if (NRF_GPIOTE->EVENTS_IN[3] != 0)		// shift
     {
-    	nrf_delay_us(2000);
+    	nrf_delay_us(20000);
         NRF_GPIOTE->EVENTS_IN[3] = 0;
 
         if(!want_shift)
@@ -381,21 +399,27 @@ void GPIOTE_IRQHandler(void)
         	want_shift = true;
         	//NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED1_Msk;
         	NRF_GPIO->OUT ^= (1 << 20);
+        	NRF_GPIOTE->TASKS_OUT[0];
 			NRF_LOG_INFO("shift\r\n");
          }
     }
 
     if (NRF_GPIOTE->EVENTS_IN[4] != 0)		// for test, enable ts
         {
-        	nrf_delay_us(2000);
+        	nrf_delay_us(20000);
             NRF_GPIOTE->EVENTS_IN[4] = 0;
 
             if(!ts_is_enabled)
             {
 				err_code = ts_enable();
 				APP_ERROR_CHECK(err_code);
-				NRF_LOG_INFO("ts disabled\r\n");
+				NRF_LOG_INFO("ts enabled\r\n");
 				ts_is_enabled = true;
+             }else
+             {
+            	 //ts_disable();
+            	 NRF_LOG_INFO("ts disabled\r\n");
+            	 ts_is_enabled = false;
              }
         }
 }

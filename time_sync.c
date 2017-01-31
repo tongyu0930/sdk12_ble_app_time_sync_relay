@@ -48,9 +48,9 @@ static volatile uint32_t 								fail_count;
 volatile uint32_t    									m_blocked_cancelled_count 				= 0;							// 这三个count有何意义？
 volatile uint32_t 										m_test_count 							= 0;
 volatile uint32_t 					  					m_rcv_count 							= 0;
-static   bool 											want_scan 								= true;
-static   bool 											first_time 								= true;
+volatile bool 											want_scan 								= false;
 volatile bool 											alreadyinsync 							= false;
+extern volatile bool 									first_time;
 extern volatile bool 									want_shift; 															// 不要赋值
 extern const ble_gap_scan_params_t 						m_scan_params;
 
@@ -443,30 +443,35 @@ void SWI3_EGU3_IRQHandler(void)											// it is used to shut down thoses PPIs
 
             }else
             {
-            	if(want_scan){
-            		if(!first_time)
-            		{
-            		err_code = sd_ble_gap_adv_stop();
-            		APP_ERROR_CHECK(err_code);
-            		}else{
-            			first_time = false;
-            		}
-            		NRF_LOG_INFO("Iam ok\r\n");
+            	if(first_time)
+            	{
             		err_code = sd_ble_gap_scan_start(&m_scan_params);
             		APP_ERROR_CHECK(err_code);
-
-					NRF_LOG_INFO("scanning\r\n");
-					want_scan = false;
-
+            		first_time 	= false;
+            		want_scan 	= false;
             	}else
             	{
-            		err_code = sd_ble_gap_scan_stop();
-            		APP_ERROR_CHECK(err_code);
+					if(want_scan)
+					{
+						err_code = sd_ble_gap_adv_stop();
+						APP_ERROR_CHECK(err_code);
 
-            		advertising_start();
+						err_code = sd_ble_gap_scan_start(&m_scan_params);
+						APP_ERROR_CHECK(err_code);
 
-            		NRF_LOG_INFO("broadcasting\r\n");
-            		want_scan = true;
+						NRF_LOG_INFO("scanning\r\n");
+						want_scan = false;
+
+					}else
+					{
+						err_code = sd_ble_gap_scan_stop();
+						APP_ERROR_CHECK(err_code);
+
+						advertising_start();
+
+						NRF_LOG_INFO("broadcasting\r\n");
+						want_scan = true;
+					}
             	}
             }
             }
@@ -548,7 +553,7 @@ void ppi_configure(void)	// in this function, only configuration, not enable, CH
 	NRF_PPI->CHENSET   = PPI_CHENSET_CH5_Msk; 							// enable
 
     NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED0_Msk; 				// Enable interrupt for TRIGGERED[0] event
-    NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED1_Msk;				// for test
+    //NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED1_Msk;				// for test
     NVIC_ClearPendingIRQ(SWI3_EGU3_IRQn);
     NVIC_SetPriority(SWI3_EGU3_IRQn, 7);
     NVIC_EnableIRQ(SWI3_EGU3_IRQn);
