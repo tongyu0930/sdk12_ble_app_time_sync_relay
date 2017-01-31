@@ -249,6 +249,7 @@ void relay_adv_data(ble_evt_t * p_ble_evt)
 	ble_gap_evt_t * p_gap_evt = &p_ble_evt->evt.gap_evt;
 	ble_gap_evt_adv_report_t * p_adv_report = &p_gap_evt->params.adv_report; // 这个report里还有peer地址，信号强度等可以利用的信息。
 	uint8_t *p_data = (uint8_t *)p_adv_report->data;
+	//int8_t *rssi_data = (int8_t *)p_adv_report->rssi;
 
 	while (index < p_adv_report->dlen)
 	    {
@@ -257,9 +258,7 @@ void relay_adv_data(ble_evt_t * p_ble_evt)
 
 			if ( field_type == BLE_GAP_AD_TYPE_MANUFACTURER_SPECIFIC_DATA)
 			{
-
-					NRF_LOG_INFO("GOTCHYA\r\n");
-
+					NRF_LOG_INFO("rssi = %d\r\n", p_adv_report->rssi);
 			}
 
 			index += field_length + 1;
