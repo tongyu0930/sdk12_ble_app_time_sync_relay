@@ -249,6 +249,7 @@ void relay_adv_data(ble_evt_t * p_ble_evt)
 	ble_gap_evt_t * p_gap_evt = &p_ble_evt->evt.gap_evt;
 	ble_gap_evt_adv_report_t * p_adv_report = &p_gap_evt->params.adv_report; // 这个report里还有peer地址，信号强度等可以利用的信息。
 	uint8_t *p_data = (uint8_t *)p_adv_report->data;
+	//int8_t *rssi_data = (int8_t *)p_adv_report->rssi;
 
 	while (index < p_adv_report->dlen)
 	    {
@@ -258,7 +259,6 @@ void relay_adv_data(ble_evt_t * p_ble_evt)
 			if ( field_type == BLE_GAP_AD_TYPE_MANUFACTURER_SPECIFIC_DATA)
 			{
 					NRF_LOG_INFO("rssi = %d\r\n", p_adv_report->rssi);
-					NRF_LOG_INFO("dlen = %d\r\n", p_adv_report->dlen); // 这个就是p_data（安卓手机上raw data）的length
 			}
 
 			index += field_length + 1;
@@ -521,11 +521,12 @@ int main(void)
 	NRF_TIMER2->PRESCALER   = 8; // 原值为：SYNC_TIMER_PRESCALER // frequency = 16000000/(2^8) = 62500 hz
 	NRF_TIMER2->BITMODE     = TIMER_BITMODE_BITMODE_16Bit << TIMER_BITMODE_BITMODE_Pos;		//16 bit timer
 	NRF_TIMER2->CC[0]       = (0xFFFF);
-	NRF_TIMER2->SHORTS      = TIMER_SHORTS_COMPARE0_CLEAR_Msk;// | TIMER_SHORTS_COMPARE3_CLEAR_Msk; // 让event_compare register达到cc的值就清零
+	//NRF_TIMER2->CC[3]       = (0x7FFF); // Only used for debugging purposes such as pin toggling
+	NRF_TIMER2->SHORTS      = TIMER_SHORTS_COMPARE0_CLEAR_Msk | TIMER_SHORTS_COMPARE3_CLEAR_Msk; // 让event_compare register达到cc的值就清零
 	NRF_TIMER2->TASKS_START = 1;
 	NRF_LOG_INFO("timer2 started\r\n");
 
-
+    // Enter main loop.
     for (;; ) 																	// Enter main loop.
     {
         if (NRF_LOG_PROCESS() == false)
