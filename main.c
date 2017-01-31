@@ -337,7 +337,7 @@ void GPIOTE_IRQHandler(void)
 
     if (NRF_GPIOTE->EVENTS_IN[1] != 0) // button1 实现timesync广播的开启和关闭
     {
-        nrf_delay_us(20000);
+        nrf_delay_us(200000);
         NRF_GPIOTE->EVENTS_IN[1] = 0; // 这句话是为了防止按键一直被按着，如果没有这句话，handler就会一直被call
 
         if (m_send_sync_pkt)
@@ -360,7 +360,7 @@ void GPIOTE_IRQHandler(void)
 
     if (NRF_GPIOTE->EVENTS_IN[2] != 0) // button2 开启关闭 广播
     {
-    	nrf_delay_us(20000);
+    	nrf_delay_us(200000);
         NRF_GPIOTE->EVENTS_IN[2] = 0;
 
         if(!started_bro_sca)
@@ -390,7 +390,7 @@ void GPIOTE_IRQHandler(void)
 
     if (NRF_GPIOTE->EVENTS_IN[3] != 0)		// shift
     {
-    	nrf_delay_us(20000);
+    	nrf_delay_us(200000);
         NRF_GPIOTE->EVENTS_IN[3] = 0;
 
         if(!want_shift)
@@ -405,7 +405,7 @@ void GPIOTE_IRQHandler(void)
 
     if (NRF_GPIOTE->EVENTS_IN[4] != 0)		// for test, enable ts
         {
-        	nrf_delay_us(20000);
+        	nrf_delay_us(200000);
             NRF_GPIOTE->EVENTS_IN[4] = 0;
 
             if(!ts_is_enabled)
@@ -523,7 +523,6 @@ int main(void)
 	NRF_TIMER2->CC[0]       = (0xFFFF);
 	NRF_TIMER2->SHORTS      = TIMER_SHORTS_COMPARE0_CLEAR_Msk;// | TIMER_SHORTS_COMPARE3_CLEAR_Msk; // 让event_compare register达到cc的值就清零
 	NRF_TIMER2->TASKS_START = 1;
-	NRF_TIMER2->EVENTS_COMPARE[3] = 0; // 自己加的 event_compare register 的初始值
 	NRF_LOG_INFO("timer2 started\r\n");
 
 
