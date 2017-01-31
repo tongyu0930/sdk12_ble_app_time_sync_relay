@@ -225,7 +225,7 @@ static void advertising_init(void)
     memset(&m_adv_params, 0, sizeof(m_adv_params));
 
     m_adv_params.type        					= BLE_GAP_ADV_TYPE_ADV_NONCONN_IND;
-    m_adv_params.p_peer_addr 					= NULL;                             // Undirected advertisement.
+    m_adv_params.p_peer_addr 					= NULL;                             				// Undirected advertisement.
     m_adv_params.fp          					= BLE_GAP_ADV_FP_ANY;
     m_adv_params.interval    					= NON_CONNECTABLE_ADV_INTERVAL;
     m_adv_params.timeout     					= APP_CFG_NON_CONN_ADV_TIMEOUT;
@@ -240,29 +240,6 @@ void advertising_start(void)
     err_code = sd_ble_gap_adv_start(&m_adv_params);
     APP_ERROR_CHECK(err_code);
 }
-
-/*
-void relay_adv_data(ble_evt_t * p_ble_evt)
-{
-	uint32_t index = 0;
-
-	ble_gap_evt_t * p_gap_evt = &p_ble_evt->evt.gap_evt;
-	ble_gap_evt_adv_report_t * p_adv_report = &p_gap_evt->params.adv_report; // 这个report里还有peer地址，信号强度等可以利用的信息。
-	uint8_t *p_data = (uint8_t *)p_adv_report->data;
-
-	while (index < p_adv_report->dlen)
-	    {
-	        uint8_t field_length = p_data[index];
-	        uint8_t field_type   = p_data[index+1];
-
-			if ( field_type == BLE_GAP_AD_TYPE_MANUFACTURER_SPECIFIC_DATA)
-			{
-					NRF_LOG_INFO("rssi = %d\r\n", p_adv_report->rssi);
-					NRF_LOG_INFO("dlen = %d\r\n", p_adv_report->dlen); // 这个就是p_data（安卓手机上raw data）的length
-			}
-			index += field_length + 1;
-	    }
-}*/
 
 
 /**@brief Function for dispatching a BLE stack event to all modules with a BLE stack event handler.
@@ -285,7 +262,7 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
  */
 static void sys_evt_dispatch(uint32_t sys_evt)														//这个function到底何时被call？
 {
-    ts_on_sys_evt(sys_evt); // this function is in "time_sync.c"
+    ts_on_sys_evt(sys_evt);
 }
 
 
