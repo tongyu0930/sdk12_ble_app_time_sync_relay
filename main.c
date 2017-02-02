@@ -158,6 +158,7 @@ void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)  //重写a
     UNUSED_VARIABLE(m_error_data);
 
     //NRF_LOG_INFO("ASSERT\r\n\tError: 0x%08x\r\n\tLine: %d\r\n\tFile: %s\r\n", m_error_data.err_code, m_error_data.line_num, m_error_data.p_file_name);
+    NRF_LOG_INFO("error!!!");
 
     // If printing is disrupted, remove the irq calls, or set the loop variable to 0 in the debugger.
     __disable_irq();

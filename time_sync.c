@@ -31,7 +31,7 @@
 #define TIMER_MAX_VAL (0xFFFF)	 //16bit
 #define RTC_MAX_VAL   (0xFFFFFF) //24bit
 #define TIMESLOT_EXTEND_LENGTH 1000	//原值 200
-#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN				25	// 原值50
+#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN				100	// 原值50
 
 
 static nrf_radio_signal_callback_return_param_t 		signal_callback_return_param;
@@ -40,6 +40,7 @@ static uint32_t             							m_slot_length;
 static uint32_t      									total_timeslot_length 					= 0;
 static uint32_t											normal_distance 						= 0;
 static uint32_t     									m_ppi_chen_mask 						= 0;
+static uint8_t											timer_offset_tolerance					= 2;
 static volatile bool 									m_send_sync_pkt 						= false;
 static volatile bool 									m_timer_update_in_progress 				= false;
 static volatile bool 									timeslot_session_opened 				= false;
@@ -153,9 +154,12 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
         break;
     
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_TIMER0:
+    	NRF_TIMER0->TASKS_STOP          = 1;
+    	NRF_TIMER0->EVENTS_COMPARE[0] 	= 0;
     	if(m_send_sync_pkt)
     	{
-    		normal_distance = total_timeslot_length + 30000;
+    		timeslot_end_handler();
+    		normal_distance = total_timeslot_length + 50000;										// 50000是和下一次timeslot的距离
 			configure_next_event_normal();
 			signal_callback_return_param.params.request.p_next = &m_timeslot_request;
 			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_REQUEST_AND_END;
@@ -164,8 +168,8 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
     		if(total_timeslot_length >= 6000000)													// 可以把600000设置为变量，方便调解
     		{
     			timeslot_end_handler(); 															// 我发现这个有没有，之后都可以正常广播扫描
-    			NRF_LOG_INFO("Timeslot end %d microseconds\r\n", NRF_TIMER0->CC[0]); 				// 这个数值小的原因是剪去了 TIMESLOT_TIMER_INTERRUPT_END_MARGIN
-
+    			//NRF_LOG_INFO("Timeslot end %d microseconds\r\n", NRF_TIMER0->CC[0]); 				// 这个数值小的原因是剪去了 TIMESLOT_TIMER_INTERRUPT_END_MARGIN
+    			//NRF_LOG_INFO("Timeslot end");
     			signal_callback_return_param.params.request.p_next = NULL;
     			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_END;
     			//configure_next_event_earliest();													// 想不停止就用这三句代替上面两句
@@ -194,11 +198,14 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
     
     case NRF_RADIO_CALLBACK_SIGNAL_TYPE_EXTEND_SUCCEEDED:
     	NRF_TIMER0->TASKS_STOP          = 1;
-    	NRF_TIMER0->EVENTS_COMPARE[0] 	= 0;
+    	NRF_TIMER0->EVENTS_COMPARE[0] 	= 0;														// 这个是事件，数值只有0，1，你不让他＝0，就会一直有interrupt
     	extend_success_count++;
     	total_timeslot_length += TIMESLOT_EXTEND_LENGTH;
-		NRF_TIMER0->CC[0] += TIMESLOT_EXTEND_LENGTH - TIMESLOT_TIMER_INTERRUPT_END_MARGIN; 			// WHY? 看来自己对compare的理解不对
-		NRF_TIMER0->TASKS_START          = 1;
+		//NRF_TIMER0->CC[0] += TIMESLOT_EXTEND_LENGTH - TIMESLOT_TIMER_INTERRUPT_END_MARGIN; 			// WHY? 看来自己对compare的理解不对
+		NRF_TIMER0->TASKS_CLEAR			= 1;
+		NRF_TIMER0->CC[0] 				= TIMESLOT_EXTEND_LENGTH - TIMESLOT_TIMER_INTERRUPT_END_MARGIN;
+		NRF_TIMER0->TASKS_START         = 1;
+
 		signal_callback_return_param.params.request.p_next = NULL;
 		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE;
         break;
@@ -346,7 +353,7 @@ void timeslot_begin_handler(void)
     while (NRF_TIMER3->EVENTS_COMPARE[0] == 0)													//上一句刚开启timer3，所以这地方括号里就为true？
     {
         __NOP();																				// Wait for timer to trigger
-    }																							// 一旦timer3开始tick，就出来while了？
+    }																							// 一旦timer3 里的counter到45，就出来while了
     
     m_radio_state                = RADIO_STATE_TX;
     m_sync_pkt.timer_val         = NRF_TIMER2->CC[1];											// 这时CC[1]里的值就是上面用ppi capture到的？
@@ -507,14 +514,13 @@ static inline void sync_timer_offset_compensate(void)
     }
     
     //if (timer_offset == 0 ||timer_offset == TIMER_MAX_VAL) // this one is original
-    if (timer_offset < 10 || timer_offset > (TIMER_MAX_VAL-10))
+    if ((timer_offset < timer_offset_tolerance) || (timer_offset > (TIMER_MAX_VAL - timer_offset_tolerance)))
     {
-        //NRF_GPIO->OUT ^= (1 << 25); // 这话是作者留下的，什么意思？
     	alreadyinsync = true;
     	NRF_LOG_INFO("already in sync\r\n");
-        //return;
-    }else{
-    	//alreadyinsync = false;  													// 去掉这句，already in sync 后就再也不会变为false了。
+    }else
+    {
+    	alreadyinsync = false;  													// 去掉这句，already in sync 后就再也不会变为false了。
     }
     
 	if(!alreadyinsync)
@@ -524,7 +530,7 @@ static inline void sync_timer_offset_compensate(void)
     m_timer_update_in_progress = true;
     
     NRF_PPI->CHENSET = m_ppi_chen_mask;												// Enable PPI channels 开启对时的那几个channel
-    NRF_LOG_INFO("m_ppi_chen_mask be set\r\n");
+    NRF_LOG_INFO("not in sync, m_ppi_chen_mask be set\r\n");
 	}
 }
 
@@ -559,7 +565,7 @@ void ppi_configure(void)	// in this function, only configuration, not enable, CH
     NVIC_EnableIRQ(SWI3_EGU3_IRQn);
 
 	NRF_PPI->CHENCLR      = (1 << 0);									// for test
-	NRF_PPI->CH[0].EEP = (uint32_t) &NRF_TIMER2->EVENTS_COMPARE[0];
+	NRF_PPI->CH[0].EEP = (uint32_t) &NRF_TIMER2->EVENTS_COMPARE[0];		// 为什么用ppi时不用清除compare event？：EVENTS_COMPARE[0]＝0
 	NRF_PPI->CH[0].TEP = (uint32_t) &NRF_GPIOTE->TASKS_OUT[0];
 	NRF_PPI->CHENSET   = PPI_CHENSET_CH0_Msk; // enable
 }
@@ -582,7 +588,7 @@ uint32_t ts_enable(void) 																// 这个function返回error_code，所
 
     if(!hfclk_is_running)
     {
-    	err_code = sd_clock_hfclk_request();
+    	err_code = sd_clock_hfclk_request();											// external crystal oscillator
     	if (err_code != NRF_SUCCESS) { return err_code; }
     }
 
