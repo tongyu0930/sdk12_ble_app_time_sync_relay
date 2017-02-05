@@ -31,7 +31,7 @@
 #define TIMER_MAX_VAL (0xFFFF)	 //16bit
 #define RTC_MAX_VAL   (0xFFFFFF) //24bit
 #define TIMESLOT_EXTEND_LENGTH 1000	//原值 200
-#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN				100	// 原值50
+#define TIMESLOT_TIMER_INTERRUPT_END_MARGIN				100	// 原值50 我觉得这个数值的大小取决于你的graceful shotdown要关掉什么
 
 
 static nrf_radio_signal_callback_return_param_t 		signal_callback_return_param;
@@ -148,7 +148,7 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
 		NVIC_EnableIRQ(TIMER0_IRQn);
         NRF_RADIO->POWER                = (RADIO_POWER_POWER_Enabled << RADIO_POWER_POWER_Pos);		// turn on radio
         total_timeslot_length = m_slot_length;
-        timeslot_begin_handler();
+        timeslot_begin_handler();																	// TXmode时，发送packet的频率就是进入这个case的频率
 		signal_callback_return_param.params.request.p_next = NULL;
 		signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_NONE;
         break;
@@ -169,7 +169,7 @@ static nrf_radio_signal_callback_return_param_t * radio_callback (uint8_t signal
     		{
     			timeslot_end_handler(); 															// 我发现这个有没有，之后都可以正常广播扫描
     			//NRF_LOG_INFO("Timeslot end %d microseconds\r\n", NRF_TIMER0->CC[0]); 				// 这个数值小的原因是剪去了 TIMESLOT_TIMER_INTERRUPT_END_MARGIN
-    			//NRF_LOG_INFO("Timeslot end");
+    			NRF_LOG_INFO("waited too long, timeout!");
     			signal_callback_return_param.params.request.p_next = NULL;
     			signal_callback_return_param.callback_action = NRF_RADIO_SIGNAL_CALLBACK_ACTION_END;
     			//configure_next_event_earliest();													// 想不停止就用这三句代替上面两句

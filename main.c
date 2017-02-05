@@ -51,9 +51,9 @@
 
 //不知道设置为0004和4000有什么区别，led看起来都闪的一样快。
 //#define SCAN_INTERVAL           0x00A0                          /**< Determines scan interval in units of 0.625 millisecond. */
-#define SCAN_INTERVAL           0x0400   //Scan interval or window is between 0x0004 and 0x4000 in 0.625ms units (2.5ms to 10.24s).
+#define SCAN_INTERVAL           0x0800   //500ms //Scan interval or window is between 0x0004 and 0x4000 in 0.625ms units (2.5ms to 10.24s).
 //#define SCAN_WINDOW             0x0050                          /**< Determines scan window in units of 0.625 millisecond. */
-#define SCAN_WINDOW             0x0400   //The scanWindow shall be less than or equal to the scanInterval.Scan window between 0x0004 and 0x4000
+#define SCAN_WINDOW             0x0800   //The scanWindow shall be less than or equal to the scanInterval.Scan window between 0x0004 and 0x4000
 #define SCAN_ACTIVE             0                               /**< If 1, performe active scanning (scan requests). */
 #define SCAN_SELECTIVE          0                               /**< If 1, ignore unknown devices (non whitelisted). */
 #define SCAN_TIMEOUT            0x0000
@@ -205,9 +205,7 @@ static void advertising_init(void)
     uint8_t       flags 						= BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED;
 
     ble_advdata_manuf_data_t manuf_specific_data;
-
     uint8_t data[] 								= "xxxxx"; // Our data to adverise。 scanner上显示的0x串中，最后是00，表示结束。
-
     manuf_specific_data.company_identifier 		= APP_COMPANY_IDENTIFIER;
     manuf_specific_data.data.p_data 			= data;
     manuf_specific_data.data.size   			= sizeof(data);
@@ -221,6 +219,8 @@ static void advertising_init(void)
 
     err_code = ble_advdata_set(&advdata, NULL);
     APP_ERROR_CHECK(err_code);
+
+    //sd_ble_gap_adv_data_set(pp_data, sizeof(pp_data), NULL, 0); // 用这句话来躲避掉flag
 
     // Initialize advertising parameters (used when starting advertising).
     memset(&m_adv_params, 0, sizeof(m_adv_params));
@@ -311,7 +311,7 @@ void GPIOTE_IRQHandler(void)
 
     if (NRF_GPIOTE->EVENTS_IN[1] != 0) // button1 实现timesync广播的开启和关闭
     {
-        nrf_delay_us(200000);
+        nrf_delay_us(200000); // 改成 button pressed confidence level 也行
         NRF_GPIOTE->EVENTS_IN[1] = 0; // 这句话是为了防止按键一直被按着，如果没有这句话，handler就会一直被call
 
         if (m_send_sync_pkt)
@@ -373,7 +373,7 @@ void GPIOTE_IRQHandler(void)
         	//NRF_EGU3->INTENSET 		= EGU_INTENSET_TRIGGERED1_Msk;
         	NRF_GPIO->OUT ^= (1 << 20);
         	NRF_GPIOTE->TASKS_OUT[0];
-			NRF_LOG_INFO("shift\r\n");
+			NRF_LOG_INFO("shift %d \r\n", rand()%100);
          }
     }
 
